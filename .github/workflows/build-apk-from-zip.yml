@@ -17,36 +17,31 @@ jobs:
           mkdir project
           unzip -q project.zip -d project
 
-      - name: Find Android project
+      - name: Locate Android project
         id: android
-        shell: bash
         run: |
-          ROOT=$(find project -type f -name gradlew -path '*/android/gradlew' -printf '%h
-' | head -1)
+          ROOT=$(find project -type f -name gradlew -print -quit)
           if [ -z "$ROOT" ]; then
-            echo "ERROR: android/gradlew tidak ditemukan"
-            find project -maxdepth 4 -type f | head -100
+            echo "ERROR: file gradlew tidak ditemukan di project.zip"
             exit 1
           fi
+          ROOT=$(dirname "$ROOT")
           echo "root=$ROOT" >> "$GITHUB_OUTPUT"
-          echo "Android project: $ROOT"
+          echo "Android project ditemukan: $ROOT"
 
-      - name: Check preinstalled Android SDK
-        shell: bash
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Show Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
           ls -la "$ANDROID_HOME" || true
           ls -la "$ANDROID_HOME/platforms" || true
           ls -la "$ANDROID_HOME/build-tools" || true
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-
-      - name: Setup Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
 
       - name: Build APK
         working-directory: ${{ steps.android.outputs.root }}
