@@ -1,4 +1,4 @@
-name: Build ADLYSIGN POS APK
+name: Build ADLYSIGN POS PRO APK
 
 on:
   workflow_dispatch:
@@ -17,54 +17,38 @@ jobs:
           mkdir project
           unzip -q project.zip -d project
 
-      - name: Find project root
-        id: root
+      - name: Find Android project
+        id: android
         shell: bash
         run: |
-          ROOT=$(find project -name package.json -not -path '*/node_modules/*' -printf '%h\n' | head -1)
-          if [ -z "$ROOT" ]; then
-            echo "ERROR: package.json tidak ditemukan di project.zip"
+          ANDROID_ROOT=$(find project -type f -path '*/android/gradlew' -printf '%h\n' | head -1)
+          if [ -z "$ANDROID_ROOT" ]; then
+            echo "ERROR: folder android/ dengan gradlew tidak ditemukan"
+            find project -maxdepth 4 -type f | head -100
             exit 1
           fi
-          echo "root=$ROOT" >> "$GITHUB_OUTPUT"
-          echo "Project root: $ROOT"
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install dependencies
-        working-directory: ${{ steps.root.outputs.root }}
-        run: |
-          npm install --legacy-peer-deps
-
-      - name: Build web app
-        working-directory: ${{ steps.root.outputs.root }}
-        run: npm run build
-
-      - name: Sync Capacitor Android
-        working-directory: ${{ steps.root.outputs.root }}
-        run: npx cap sync android
+          echo "root=$ANDROID_ROOT" >> "$GITHUB_OUTPUT"
+          echo "Android project: $ANDROID_ROOT"
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
+          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build APK
-        working-directory: ${{ steps.root.outputs.root }}/android
+      - name: Build APK directly
+        working-directory: ${{ steps.android.outputs.root }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ADLYSIGN-POS-PRO-APK
-          path: ${{ steps.root.outputs.root }}/android/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ steps.android.outputs.root }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
