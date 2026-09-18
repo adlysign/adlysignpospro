@@ -23,7 +23,7 @@ jobs:
         run: |
           ROOT=$(find project -name package.json -not -path '*/node_modules/*' -printf '%h\n' | head -1)
           if [ -z "$ROOT" ]; then
-            echo "package.json tidak ditemukan"
+            echo "ERROR: package.json tidak ditemukan di project.zip"
             exit 1
           fi
           echo "root=$ROOT" >> "$GITHUB_OUTPUT"
@@ -37,13 +37,13 @@ jobs:
       - name: Install dependencies
         working-directory: ${{ steps.root.outputs.root }}
         run: |
-          npm ci --legacy-peer-deps
+          npm install --legacy-peer-deps
 
       - name: Build web app
         working-directory: ${{ steps.root.outputs.root }}
         run: npm run build
 
-      - name: Sync Capacitor
+      - name: Sync Capacitor Android
         working-directory: ${{ steps.root.outputs.root }}
         run: npx cap sync android
 
