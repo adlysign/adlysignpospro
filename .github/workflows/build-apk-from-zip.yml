@@ -1,0 +1,81 @@
+name: Build APK from ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'project.zip'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract project ZIP
+        run: |
+          mkdir -p project
+          unzip -q project.zip -d project
+          echo "Extracted files:"
+          find project -maxdepth 3 -type f | head -100
+
+      - name: Find project root
+        id: root
+        shell: bash
+        run: |
+          ROOT="$(find project -name package.json -not -path '*/node_modules/*' -printf '%h\n' | head -1)"
+          if [ -z "$ROOT" ]; then
+            echo "package.json tidak ditemukan"
+            exit 1
+          fi
+          echo "root=$ROOT" >> "$GITHUB_OUTPUT"
+          echo "Project root: $ROOT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: ${{ steps.root.outputs.root }}
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Build web app
+        working-directory: ${{ steps.root.outputs.root }}
+        run: npm run build
+
+      - name: Sync Capacitor
+        working-directory: ${{ steps.root.outputs.root }}
+        run: npx cap sync android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build APK
+        working-directory: ${{ steps.root.outputs.root }}/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ADLYSIGN-POS-PRO-APK
+          path: ${{ steps.root.outputs.root }}/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
