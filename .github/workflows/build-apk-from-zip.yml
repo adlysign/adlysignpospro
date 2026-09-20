@@ -13,13 +13,15 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Extract POS ZIP
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
           rm -rf project
           mkdir -p project
           unzip -q adlysign-pos-pro.zip -d project
@@ -29,11 +31,15 @@ jobs:
         id: locate
         shell: bash
         run: |
-          set -e
-          ROOT=$(find project -type f -name settings.gradle.kts -print -quit | xargs -r dirname)
+          set -euo pipefail
+          ROOT="$(find project -type f -name settings.gradle.kts -print -quit | xargs -r dirname)"
           if [ -z "$ROOT" ]; then
             echo "ERROR: settings.gradle.kts not found"
-            find project -maxdepth 4 -type f | head -100
+            find project -maxdepth 5 -type f | head -200
+            exit 1
+          fi
+          if [ ! -f "$ROOT/app/build.gradle.kts" ]; then
+            echo "ERROR: app/build.gradle.kts not found under $ROOT"
             exit 1
           fi
           echo "root=$ROOT" >> "$GITHUB_OUTPUT"
@@ -44,6 +50,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -56,7 +63,7 @@ jobs:
       - name: Install Android 36 SDK packages
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
           yes | sdkmanager --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
           sdkmanager --sdk_root="$SDK_ROOT" \
@@ -64,19 +71,66 @@ jobs:
             "build-tools;36.0.0" \
             "platform-tools"
 
-      - name: Set up Gradle
+      - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+          cache-read-only: false
+
+      - name: Prepare deterministic debug signing
+        working-directory: ${{ steps.locate.outputs.root }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # AGP normally creates/uses a debug keystore automatically, but this
+          # project previously referenced a project-local debug.keystore.
+          # Create it explicitly so CI never depends on a missing local file.
+          rm -f debug.keystore
+          keytool -genkeypair -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          test -f debug.keystore
+          echo "Debug keystore created: $(pwd)/debug.keystore"
+
+      - name: Preflight Android project
+        working-directory: ${{ steps.locate.outputs.root }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Build configuration ==="
+          grep -nE 'applicationId|namespace|compileSdk|minSdk|targetSdk|signingConfig|googleServices' app/build.gradle.kts || true
+          echo "=== Required files ==="
+          test -f settings.gradle.kts
+          test -f app/build.gradle.kts
+          test -f debug.keystore
+          echo "Preflight OK"
 
       - name: Build debug APK
         working-directory: ${{ steps.locate.outputs.root }}
-        run: gradle --no-daemon --stacktrace assembleDebug
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace --warning-mode all assembleDebug
+
+      - name: Verify APK
+        working-directory: ${{ steps.locate.outputs.root }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          ls -lh "$APK"
 
       - name: Collect APK
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           mkdir -p output
           find "${{ steps.locate.outputs.root }}/app/build/outputs/apk" \
             -type f -name '*.apk' -exec cp {} output/ \;
