@@ -1,4 +1,4 @@
-name: Build ADLYSIGN POS PRO APK from ZIP
+name: Build ADLYSIGN POS PRO APK
 
 on:
   workflow_dispatch:
@@ -13,17 +13,18 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Extract POS ZIP
         run: |
+          set -e
           rm -rf project
-          mkdir project
+          mkdir -p project
           unzip -q adlysign-pos-pro.zip -d project
-          echo 'Extracted files:'
-          find project -maxdepth 2 -type f | head -80
+          echo "ZIP extracted"
 
       - name: Locate Android project
         id: locate
@@ -31,11 +32,12 @@ jobs:
         run: |
           set -e
           ROOT=$(find project -type f -name gradlew -print -quit | xargs -r dirname)
-          if [ -z "$ROOT" ]; then
-            if [ -f project/settings.gradle.kts ] && [ -d project/app ]; then ROOT=project; fi
+          if [ -z "$ROOT" ] && [ -f project/settings.gradle.kts ] && [ -d project/app ]; then
+            ROOT=project
           fi
           if [ -z "$ROOT" ]; then
-            echo 'Android Gradle project not found in ZIP.'
+            echo "ERROR: Android Gradle project not found inside adlysign-pos-pro.zip"
+            find project -maxdepth 3 -type f | head -100
             exit 1
           fi
           echo "root=$ROOT" >> "$GITHUB_OUTPUT"
@@ -47,14 +49,29 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # v3 can fail on current GitHub runners while resolving the old
+      # preinstalled sdkmanager. v4 uses the current command-line tools.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: '14742923'
+          packages: 'platform-tools'
+          accept-android-sdk-licenses: 'true'
+          log-accepted-android-sdk-licenses: 'false'
 
-      - name: Install Android SDK packages
+      - name: Install Android 36 SDK packages
+        shell: bash
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          set -e
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
+          echo "ANDROID SDK: $SDK_ROOT"
+          yes | sdkmanager --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+          sdkmanager --sdk_root="$SDK_ROOT" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "platform-tools"
 
-      - name: Make Gradle executable
+      - name: Prepare Gradle
         working-directory: ${{ steps.locate.outputs.root }}
         run: chmod +x gradlew
 
@@ -63,9 +80,12 @@ jobs:
         run: ./gradlew --no-daemon --stacktrace assembleDebug
 
       - name: Collect APK
+        shell: bash
         run: |
+          set -e
           mkdir -p output
-          find '${{ steps.locate.outputs.root }}/app/build/outputs/apk' -type f -name '*.apk' -exec cp {} output/ \;
+          find "${{ steps.locate.outputs.root }}/app/build/outputs/apk" \
+            -type f -name '*.apk' -exec cp {} output/ \;
           ls -lh output
 
       - name: Upload APK
