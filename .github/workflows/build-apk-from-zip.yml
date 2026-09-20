@@ -71,13 +71,14 @@ jobs:
             "build-tools;36.0.0" \
             "platform-tools"
 
-      - name: Prepare Gradle
-        working-directory: ${{ steps.locate.outputs.root }}
-        run: chmod +x gradlew
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
 
       - name: Build debug APK
         working-directory: ${{ steps.locate.outputs.root }}
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
+        run: gradle --no-daemon --stacktrace assembleDebug
 
       - name: Collect APK
         shell: bash
