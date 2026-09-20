@@ -13,7 +13,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,13 +30,10 @@ jobs:
         shell: bash
         run: |
           set -e
-          ROOT=$(find project -type f -name gradlew -print -quit | xargs -r dirname)
-          if [ -z "$ROOT" ] && [ -f project/settings.gradle.kts ] && [ -d project/app ]; then
-            ROOT=project
-          fi
+          ROOT=$(find project -type f -name settings.gradle.kts -print -quit | xargs -r dirname)
           if [ -z "$ROOT" ]; then
-            echo "ERROR: Android Gradle project not found inside adlysign-pos-pro.zip"
-            find project -maxdepth 3 -type f | head -100
+            echo "ERROR: settings.gradle.kts not found"
+            find project -maxdepth 4 -type f | head -100
             exit 1
           fi
           echo "root=$ROOT" >> "$GITHUB_OUTPUT"
@@ -49,8 +45,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # v3 can fail on current GitHub runners while resolving the old
-      # preinstalled sdkmanager. v4 uses the current command-line tools.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
@@ -64,7 +58,6 @@ jobs:
         run: |
           set -e
           SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
-          echo "ANDROID SDK: $SDK_ROOT"
           yes | sdkmanager --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
           sdkmanager --sdk_root="$SDK_ROOT" \
             "platforms;android-36" \
