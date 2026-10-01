@@ -21,11 +21,11 @@ jobs:
       - name: Extract DodolanPro ZIP
         run: |
           rm -rf project
-          mkdir project
+          mkdir -p project
           unzip -q dodolanpro.zip -d project
 
           echo "Extracted files:"
-          find project -maxdepth 2 -type f | head -80
+          find project -maxdepth 3 -type f | head -100
 
       - name: Locate Android project
         id: locate
@@ -33,14 +33,31 @@ jobs:
         run: |
           set -e
 
+          ROOT=""
+
+          # Prefer an existing Gradle wrapper.
           ROOT=$(find project -type f -name gradlew -print -quit | xargs -r dirname)
 
+          # If the ZIP does not contain gradlew, locate the Android root
+          # from settings.gradle(.kts) + app directory.
+          if [ -z "$ROOT" ]; then
+            SETTINGS=$(find project -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)
+
+            if [ -n "$SETTINGS" ]; then
+              CANDIDATE=$(dirname "$SETTINGS")
+              if [ -d "$CANDIDATE/app" ]; then
+                ROOT="$CANDIDATE"
+              fi
+            fi
+          fi
+
           if [ -z "$ROOT" ] && [ -f project/settings.gradle.kts ] && [ -d project/app ]; then
-            ROOT=project
+            ROOT="project"
           fi
 
           if [ -z "$ROOT" ]; then
             echo "Android Gradle project not found in ZIP."
+            echo "Expected gradlew OR settings.gradle(.kts) with an app directory."
             exit 1
           fi
 
@@ -55,17 +72,31 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
-        with:
-          accept-android-sdk-licenses: true
-          log-accepted-android-sdk-licenses: false
 
       - name: Install Android SDK packages
         run: |
           sdkmanager             "platform-tools"             "platforms;android-35"             "build-tools;35.0.0"
 
-      - name: Make Gradle executable
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Prepare Gradle wrapper
         working-directory: ${{ steps.locate.outputs.root }}
-        run: chmod +x gradlew
+        shell: bash
+        run: |
+          set -e
+
+          if [ ! -f gradlew ]; then
+            echo "gradlew not found in ZIP."
+            echo "Generating Gradle wrapper..."
+            gradle wrapper --gradle-version 8.7
+          fi
+
+          chmod +x gradlew
+          test -f gradlew
+          echo "Gradle wrapper ready."
 
       - name: Build debug APK
         working-directory: ${{ steps.locate.outputs.root }}
@@ -73,10 +104,12 @@ jobs:
 
       - name: Collect APK
         run: |
+          set -e
           mkdir -p output
 
           find "${{ steps.locate.outputs.root }}/app/build/outputs/apk"             -type f             -name "*.apk"             -exec cp {} output/ \;
 
+          echo "Generated APK files:"
           ls -lh output
 
       - name: Upload APK
