@@ -20,6 +20,7 @@ jobs:
 
       - name: Extract DodolanPro ZIP
         run: |
+          set -e
           rm -rf project
           mkdir -p project
           unzip -q dodolanpro.zip -d project
@@ -35,11 +36,8 @@ jobs:
 
           ROOT=""
 
-          # Prefer an existing Gradle wrapper.
           ROOT=$(find project -type f -name gradlew -print -quit | xargs -r dirname)
 
-          # If the ZIP does not contain gradlew, locate the Android root
-          # from settings.gradle(.kts) + app directory.
           if [ -z "$ROOT" ]; then
             SETTINGS=$(find project -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)
 
@@ -57,7 +55,6 @@ jobs:
 
           if [ -z "$ROOT" ]; then
             echo "Android Gradle project not found in ZIP."
-            echo "Expected gradlew OR settings.gradle(.kts) with an app directory."
             exit 1
           fi
 
@@ -77,10 +74,10 @@ jobs:
         run: |
           sdkmanager             "platform-tools"             "platforms;android-35"             "build-tools;35.0.0"
 
-      - name: Set up Gradle
+      - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
+          gradle-version: '9.3.1'
 
       - name: Prepare Gradle wrapper
         working-directory: ${{ steps.locate.outputs.root }}
@@ -88,15 +85,19 @@ jobs:
         run: |
           set -e
 
-          if [ ! -f gradlew ]; then
-            echo "gradlew not found in ZIP."
-            echo "Generating Gradle wrapper..."
-            gradle wrapper --gradle-version 8.7
-          fi
+          # The project requires Gradle 9.3.1.
+          # Force the wrapper to use the required version instead of an older
+          # wrapper bundled in the ZIP.
+          gradle wrapper --gradle-version 9.3.1 --distribution-type bin
 
           chmod +x gradlew
-          test -f gradlew
-          echo "Gradle wrapper ready."
+
+          echo "Gradle wrapper configuration:"
+          grep -n "distributionUrl" gradle/wrapper/gradle-wrapper.properties || true
+
+      - name: Verify Gradle version
+        working-directory: ${{ steps.locate.outputs.root }}
+        run: ./gradlew --version
 
       - name: Build debug APK
         working-directory: ${{ steps.locate.outputs.root }}
